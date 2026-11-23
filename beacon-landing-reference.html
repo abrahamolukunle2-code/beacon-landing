@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beacon: Know the moment your API breaks</title>
+<style>
+  /* =====================================================
+     1. DESIGN TOKENS
+     Colours live in CSS variables. The dark theme only
+     changes these values, so every component updates.
+     ===================================================== */
+  :root {
+    --bg: #f7f8fc;
+    --surface: #ffffff;
+    --text: #12162b;
+    --muted: #586080;
+    --border: #e1e4f0;
+    --accent: #4f46e5;
+    --accent-dark: #3d35c4;
+    --accent-soft: #eceafd;
+    --teal: #0d9488;
+    --ok: #12a150;
+    --warn: #d97706;
+    --bad: #dc2626;
+    --code-bg: #0f1226;
+    --code-text: #dfe3ff;
+    --shadow: 0 10px 30px rgba(18, 22, 43, 0.08);
+    --radius: 16px;
+  }
+  [data-theme="dark"] {
+    --bg: #0b0d1c;
+    --surface: #14172e;
+    --text: #eef0ff;
+    --muted: #a3a9cc;
+    --border: #272b4d;
+    --accent: #8b85ff;
+    --accent-dark: #a39eff;
+    --accent-soft: #1f2250;
+    --teal: #2dd4bf;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --code-bg: #070815;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  /* =====================================================
+     2. BASE
+     ===================================================== */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+  h1, h2, h3 { line-height: 1.15; margin: 0 0 12px 0; }
+  p { margin: 0 0 16px 0; }
+  a { color: inherit; text-decoration: none; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 8px; z-index: 100; }
+  .skip:focus { left: 8px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Buttons */
+  .btn {
+    display: inline-block;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 12px 22px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35); }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn-ghost:hover { border-color: var(--accent); }
+  .btn:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* =====================================================
+     3. HEADER + NAV (flexbox)
+     ===================================================== */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 68px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.25rem; }
+  .logo-mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--teal));
+    display: grid; place-items: center;
+  }
+  .logo-mark::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.35); }
+  .nav-links { display: flex; gap: 28px; font-weight: 600; color: var(--muted); }
+  .nav-links a { padding: 6px 2px; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .nav-links a:hover { color: var(--text); border-bottom-color: var(--accent); }
+  .nav-actions { display: flex; align-items: center; gap: 12px; }
+  .icon-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+  }
+  .icon-btn:hover { border-color: var(--accent); }
+  .menu-btn { display: none; }
+
+  /* =====================================================
+     4. HERO (CSS grid, two columns)
+     ===================================================== */
+  .hero { padding: 72px 0 56px; }
+  .hero-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; }
+  .badge {
+    display: inline-block; background: var(--accent-soft); color: var(--accent);
+    font-weight: 700; font-size: 0.85rem; padding: 6px 14px; border-radius: 999px; margin-bottom: 18px;
+  }
+  .hero h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); letter-spacing: -0.02em; }
+  .gradient-text { background: linear-gradient(90deg, var(--accent), var(--teal)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lead { font-size: 1.15rem; color: var(--muted); max-width: 52ch; }
+  .hero-form { display: flex; gap: 10px; max-width: 480px; margin-top: 22px; }
+  .hero-form input {
+    flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font: inherit;
+  }
+  .form-note { font-size: 0.9rem; color: var(--muted); margin-top: 10px; }
+  .error { display: block; color: var(--bad); font-size: 0.875rem; min-height: 1.3em; margin-top: 6px; }
+
+  /* Live status card */
+  .status-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 22px;
+  }
+  .status-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .status-top h3 { margin: 0; font-size: 1.05rem; }
+  .live-pill { font-size: 0.78rem; font-weight: 700; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); padding: 4px 10px; border-radius: 999px; }
+  .status-list li { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 20%, transparent); }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 20%, transparent); }
+  .svc-name { font-weight: 600; }
+  .svc-state { display: block; font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+  .ms { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; }
+  .status-foot { margin-top: 12px; font-size: 0.82rem; color: var(--muted); }
+
+  /* =====================================================
+     5. STATS BAND
+     ===================================================== */
+  .stats { background: var(--surface); border-block: 1px solid var(--border); }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; padding: 36px 0; text-align: center; }
+  .stat-num { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); }
+  .stat-label { color: var(--muted); font-size: 0.95rem; }
+
+  /* =====================================================
+     6. SECTIONS + FEATURE CARDS
+     ===================================================== */
+  section { padding: 84px 0; }
+  .section-head { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+  .section-head h2 { font-size: clamp(1.8rem, 3.5vw, 2.5rem); letter-spacing: -0.01em; }
+  .section-head p { color: var(--muted); font-size: 1.1rem; }
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+  .card:hover { transform: translateY(-6px); box-shadow: var(--shadow); border-color: var(--accent); }
+  .card-num { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; color: var(--accent); background: var(--accent-soft); display: inline-block; padding: 4px 10px; border-radius: 8px; margin-bottom: 14px; }
+  .card h3 { font-size: 1.2rem; }
+  .card p { color: var(--muted); margin: 0; }
+
+  /* =====================================================
+     7. CODE TABS
+     ===================================================== */
+  .docs { background: var(--surface); border-block: 1px solid var(--border); }
+  .code-box { max-width: 820px; margin: 0 auto; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  .code-bar { display: flex; justify-content: space-between; align-items: center; background: #1a1e3d; padding: 10px 14px; }
+  .tabs { display: flex; gap: 6px; }
+  .tab { background: transparent; color: #aeb4e6; border: none; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .tab:hover { color: #fff; }
+  .tab.active { background: #2b3070; color: #fff; }
+  .copy-btn { background: #2b3070; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .copy-btn:hover { background: #3a409a; }
+  pre { margin: 0; background: var(--code-bg); color: var(--code-text); padding: 24px; overflow-x: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.95rem; line-height: 1.7; min-height: 150px; }
+
+  /* =====================================================
+     8. PRICING (toggle switch, cards, table)
+     ===================================================== */
+  .billing { display: flex; justify-content: center; align-items: center; gap: 14px; margin-bottom: 36px; font-weight: 600; }
+  .save { font-style: normal; font-size: 0.78rem; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); padding: 3px 8px; border-radius: 999px; margin-left: 4px; }
+  .switch { position: relative; width: 52px; height: 28px; display: inline-block; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: var(--border); border-radius: 999px; cursor: pointer; transition: background 0.2s; }
+  .slider::before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(24px); }
+  .switch input:focus-visible + .slider { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: stretch; }
+  .plan { position: relative; display: flex; flex-direction: column; }
+  .plan.featured { border: 2px solid var(--accent); box-shadow: var(--shadow); }
+  .plan .tag { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; font-size: 0.78rem; font-weight: 700; padding: 4px 14px; border-radius: 999px; }
+  .plan h3 { font-size: 1.3rem; }
+  .plan .for { color: var(--muted); font-size: 0.95rem; }
+  .price { font-size: 2.8rem; font-weight: 800; letter-spacing: -0.02em; }
+  .per { color: var(--muted); font-size: 0.9rem; margin-bottom: 18px; min-height: 1.5em; }
+  .plan ul { margin-bottom: 24px; flex: 1; }
+  .plan li { padding: 7px 0 7px 26px; position: relative; color: var(--muted); }
+  .plan li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 800; }
+  .plan .btn { text-align: center; }
+  .table-wrap { margin-top: 56px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+  caption { text-align: left; font-weight: 800; font-size: 1.2rem; padding-bottom: 12px; }
+  th, td { padding: 14px 16px; text-align: left; border: 1px solid var(--border); }
+  thead th { background: var(--accent); color: #fff; border-color: var(--accent); }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+  tbody td:first-child { font-weight: 800; color: var(--accent); background: var(--accent-soft) !important; }
+  tfoot td { text-align: center; color: var(--muted); font-weight: 600; }
+
+  /* =====================================================
+     9. FAQ (details + summary, no JavaScript needed)
+     ===================================================== */
+  .faq-list { max-width: 760px; margin: 0 auto; }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; padding: 4px 22px; transition: border-color 0.2s; }
+  details[open] { border-color: var(--accent); }
+  summary { cursor: pointer; font-weight: 700; padding: 16px 28px 16px 0; list-style: none; position: relative; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; position: absolute; right: 0; top: 50%; transform: translateY(-50%); font-size: 1.5rem; color: var(--accent); }
+  details[open] summary::after { content: "–"; }
+  details p { color: var(--muted); padding-bottom: 12px; margin: 0; }
+
+  /* =====================================================
+     10. SIGN-UP FORM
+     ===================================================== */
+  .signup { background: var(--surface); border-top: 1px solid var(--border); }
+  .form-card { max-width: 520px; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-weight: 700; margin-bottom: 6px; }
+  .field input[type="text"], .field input[type="email"], .field input[type="password"] {
+    width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); color: var(--text); font: inherit;
+  }
+  .field.invalid input { border-color: var(--bad); }
+  .meter { height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; margin-top: 10px; }
+  .meter-bar { height: 100%; width: 0%; border-radius: 999px; background: var(--bad); transition: width 0.3s ease, background 0.3s ease; }
+  .meter-bar.fair { background: var(--warn); }
+  .meter-bar.good { background: var(--teal); }
+  .meter-bar.strong { background: var(--ok); }
+  .meter-label { font-size: 0.88rem; color: var(--muted); margin-top: 6px; }
+  .terms { display: flex; gap: 10px; align-items: flex-start; }
+  .terms input { accent-color: var(--accent); margin-top: 5px; width: 18px; height: 18px; }
+  .form-card .btn { width: 100%; margin-top: 8px; }
+  .success { text-align: center; padding: 12px 0; }
+  .success h3 { font-size: 1.6rem; }
+  .success p { color: var(--muted); }
+  [hidden] { display: none !important; }
+
+  /* =====================================================
+     11. FOOTER
+     ===================================================== */
+  footer { background: #0b0d1c; color: #aab0d6; padding: 56px 0 28px; }
+  .footer-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 32px; margin-bottom: 36px; }
+  footer h4 { color: #fff; margin: 0 0 14px 0; }
+  footer li { margin-bottom: 10px; }
+  footer a:hover { color: #fff; }
+  footer .logo { color: #fff; margin-bottom: 12px; }
+  .footer-bottom { border-top: 1px solid #252a52; padding-top: 22px; font-size: 0.88rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+  /* =====================================================
+     12. RESPONSIVE (tablet and phone)
+     ===================================================== */
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .feature-grid { grid-template-columns: repeat(2, 1fr); }
+    .plan-grid { grid-template-columns: 1fr; max-width: 460px; margin: 0 auto; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 760px) {
+    .menu-btn { display: inline-block; }
+    .nav-links {
+      display: none; position: absolute; top: 68px; left: 0; right: 0; flex-direction: column; gap: 0;
+      background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 24px 16px;
+    }
+    .nav-links.open { display: flex; }
+    .nav-links a { padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .nav-actions .btn { display: none; }
+    section { padding: 60px 0; }
+    .hero { padding-top: 44px; }
+  }
+  @media (max-width: 560px) {
+    .feature-grid { grid-template-columns: 1fr; }
+    .hero-form { flex-direction: column; }
+    .footer-grid { grid-template-columns: 1fr; }
+    .form-card { padding: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body id="top">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ================= HEADER ================= -->
+<header class="site-header">
+  <div class="container nav">
+    <a class="logo" href="#top"><span class="logo-mark"></span>Beacon</a>
+
+    <nav class="nav-links" id="navLinks" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#docs">Docs</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+
+    <div class="nav-actions">
+      <button class="icon-btn" id="themeBtn" type="button">Dark mode</button>
+      <a class="btn btn-primary" href="#signup">Start free</a>
+      <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="navLinks">Menu</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <span class="badge">New: 30-second checks on every paid plan</span>
+        <h1>Know the moment <span class="gradient-text">your API breaks.</span></h1>
+        <p class="lead">Beacon watches your endpoints around the clock and alerts your team in seconds, before your customers notice anything is wrong.</p>
+
+        <form class="hero-form" id="heroForm" novalidate>
+          <label class="sr-only" for="heroEmail">Work email</label>
+          <input type="email" id="heroEmail" placeholder="you@company.com" autocomplete="email">
+          <button class="btn btn-primary" type="submit">Start free</button>
+        </form>
+        <span class="error" id="heroError" role="alert"></span>
+        <p class="form-note">Free forever for 5 monitors. No credit card needed.</p>
+      </div>
+
+      <aside class="status-card" aria-label="Live status example">
+        <div class="status-top">
+          <h3>Live status</h3>
+          <span class="live-pill">● LIVE</span>
+        </div>
+        <ul class="status-list" id="statusList"></ul>
+        <p class="status-foot" id="statusFoot">Checking...</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= STATS ================= -->
+  <div class="stats">
+    <div class="container stats-grid">
+      <div><div class="stat-num" data-target="99.99" data-decimals="2" data-suffix="%">0</div><div class="stat-label">Average uptime we deliver</div></div>
+      <div><div class="stat-num" data-target="12000" data-decimals="0" data-suffix="+">0</div><div class="stat-label">Teams trust Beacon</div></div>
+      <div><div class="stat-num" data-target="3.2" data-decimals="1" data-suffix="B">0</div><div class="stat-label">Checks run every month</div></div>
+      <div><div class="stat-num" data-target="28" data-decimals="0" data-prefix="< " data-suffix="s">0</div><div class="stat-label">Typical time to first alert</div></div>
+    </div>
+  </div>
+
+  <!-- ================= FEATURES ================= -->
+  <section id="features">
+    <div class="container">
+      <div class="section-head">
+        <h2>Everything you need to stay online</h2>
+        <p>Simple monitoring that scales from a weekend project to a platform serving millions.</p>
+      </div>
+      <div class="feature-grid" id="featureGrid"></div>
+    </div>
+  </section>
+
+  <!-- ================= DOCS / CODE TABS ================= -->
+  <section class="docs" id="docs">
+    <div class="container">
+      <div class="section-head">
+        <h2>Set up in under two minutes</h2>
+        <p>One request creates a monitor. Pick your language.</p>
+      </div>
+      <div class="code-box">
+        <div class="code-bar">
+          <div class="tabs" id="tabs"></div>
+          <button class="copy-btn" id="copyBtn" type="button">Copy</button>
+        </div>
+        <pre><code id="codeText"></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PRICING ================= -->
+  <section id="pricing">
+    <div class="container">
+      <div class="section-head">
+        <h2>Simple, honest pricing</h2>
+        <p>Start free. Upgrade when your team grows.</p>
+      </div>
+
+      <div class="billing">
+        <span id="lblMonthly">Monthly</span>
+        <label class="switch">
+          <input type="checkbox" id="billingToggle" aria-label="Switch to yearly billing">
+          <span class="slider"></span>
+        </label>
+        <span id="lblYearly">Yearly <em class="save">Save 20%</em></span>
+      </div>
+
+      <div class="plan-grid">
+        <article class="card plan">
+          <h3>Free</h3>
+          <p class="for">For side projects</p>
+          <div class="price" id="price-0">$0</div>
+          <div class="per" id="per-0">per month</div>
+          <ul>
+            <li>5 monitors</li>
+            <li>5-minute checks</li>
+            <li>Email alerts</li>
+          </ul>
+          <a class="btn btn-ghost" href="#signup">Start free</a>
+        </article>
+
+        <article class="card plan featured">
+          <span class="tag">Most popular</span>
+          <h3>Team</h3>
+          <p class="for">For growing teams</p>
+          <div class="price" id="price-1">$29</div>
+          <div class="per" id="per-1">per month</div>
+          <ul>
+            <li>50 monitors</li>
+            <li>1-minute checks</li>
+            <li>Email and Slack alerts</li>
+            <li>1 public status page</li>
+          </ul>
+          <a class="btn btn-primary" href="#signup">Start 14-day trial</a>
+        </article>
+
+        <article class="card plan">
+          <h3>Scale</h3>
+          <p class="for">For busy platforms</p>
+          <div class="price" id="price-2">$99</div>
+          <div class="per" id="per-2">per month</div>
+          <ul>
+            <li>Unlimited monitors</li>
+            <li>30-second checks</li>
+            <li>All alert channels</li>
+            <li>Priority support</li>
+          </ul>
+          <a class="btn btn-ghost" href="#signup">Start 14-day trial</a>
+        </article>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>Compare plans in detail</caption>
+          <thead>
+            <tr>
+              <th>Group</th>
+              <th>Feature</th>
+              <th>Free</th>
+              <th>Team</th>
+              <th>Scale</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td rowspan="3">Monitoring</td>
+              <td>Monitors</td>
+              <td>5</td>
+              <td>50</td>
+              <td>Unlimited</td>
+            </tr>
+            <tr>
+              <td>Check interval</td>
+              <td>5 minutes</td>
+              <td>1 minute</td>
+              <td>30 seconds</td>
+            </tr>
+            <tr>
+              <td>Check regions</td>
+              <td>3</td>
+              <td>12</td>
+              <td>24</td>
+            </tr>
+            <tr>
+              <td rowspan="2">Alerts</td>
+              <td>Channels</td>
+              <td>Email</td>
+              <td>Email + Slack</td>
+              <td>All channels</td>
+            </tr>
+            <tr>
+              <td>Escalation rules</td>
+              <td>No</td>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5">Every paid plan starts with a 14-day free trial. Cancel anytime.</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section id="faq" class="docs">
+    <div class="container">
+      <div class="section-head">
+        <h2>Questions, answered</h2>
+      </div>
+      <div class="faq-list">
+        <details>
+          <summary>Do I need a credit card to start?</summary>
+          <p>No. The Free plan needs only an email address, and it stays free forever.</p>
+        </details>
+        <details>
+          <summary>How fast will I be alerted?</summary>
+          <p>Most teams are alerted within 30 seconds of a failed check. The exact time depends on your plan's check interval.</p>
+        </details>
+        <details>
+          <summary>Can I switch plans later?</summary>
+          <p>Yes. Upgrade or downgrade at any time. Changes apply from your next billing date.</p>
+        </details>
+        <details>
+          <summary>Where do the checks run from?</summary>
+          <p>From up to 24 regions around the world on the Scale plan. Free and Team plans use a smaller set of regions.</p>
+        </details>
+        <details>
+          <summary>Is Beacon a real product?</summary>
+          <p>No. Beacon is a fictional company created for classroom practice. Nothing on this page is real.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SIGN UP ================= -->
+  <section class="signup" id="signup">
+    <div class="container">
+      <div class="section-head">
+        <h2>Create your free account</h2>
+        <p>Takes about thirty seconds.</p>
+      </div>
+
+      <div class="form-card">
+        <form id="signupForm" novalidate>
+          <div class="field" id="field-name">
+            <label for="fullName">Full name</label>
+            <input type="text" id="fullName" autocomplete="name">
+            <span class="error" id="nameError"></span>
+          </div>
+
+          <div class="field" id="field-email">
+            <label for="signupEmail">Work email</label>
+            <input type="email" id="signupEmail" autocomplete="email">
+            <span class="error" id="emailError"></span>
+          </div>
+
+          <div class="field" id="field-password">
+            <label for="password">Password</label>
+            <input type="password" id="password" autocomplete="new-password">
+            <div class="meter"><div class="meter-bar" id="meterBar"></div></div>
+            <div class="meter-label" id="meterLabel">Use 8+ characters, a capital letter, a number, and a symbol.</div>
+            <span class="error" id="passwordError"></span>
+          </div>
+
+          <div class="field">
+            <div class="terms">
+              <input type="checkbox" id="terms">
+              <label for="terms">I agree to the terms and privacy policy</label>
+            </div>
+            <span class="error" id="termsError"></span>
+          </div>
+
+          <button class="btn btn-primary" type="submit">Create account</button>
+        </form>
+
+        <div class="success" id="successBox" hidden>
+          <h3 id="successTitle">Welcome!</h3>
+          <p id="successText">Your account is ready.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================= FOOTER ================= -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <a class="logo" href="#top"><span class="logo-mark"></span>Beacon</a>
+        <p>Monitoring that tells you first.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#docs">Docs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#top">About</a></li>
+          <li><a href="#top">Careers</a></li>
+          <li><a href="#top">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Help</h4>
+        <ul>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#top">Status</a></li>
+          <li><a href="#top">Privacy</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; <span id="year">2026</span> Beacon. A fictional product made for learning.</span>
+      <span>Built with HTML, CSS and JavaScript.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  /* =====================================================
+     BEACON: JavaScript
+     Uses only: variables, arrays, loops, functions,
+     if/else, strings, and a few DOM lines.
+     ===================================================== */
+
+  // ---------- 1. DATA (parallel arrays: same position = same item) ----------
+  const serviceNames = ["API Gateway", "Auth Service", "Payments", "Database"];
+
+  const featureTitles = [
+    "Global checks",
+    "Instant alerts",
+    "Status pages",
+    "Response-time graphs",
+    "SSL and domain watch",
+    "Team on-call"
+  ];
+  const featureTexts = [
+    "Probes from 24 regions test your endpoints every 30 seconds.",
+    "Email, Slack, SMS or webhooks. Alerts reach the right person in seconds.",
+    "Publish a clean public status page in one click and keep customers informed.",
+    "Spot slow endpoints before they become outages, with 12 months of history.",
+    "Get warned weeks before a certificate or domain expires.",
+    "Schedules and escalations so the right engineer is always paged."
+  ];
+
+  const tabNames = ["cURL", "JavaScript", "Python"];
+  const snippets = [
+    [
+      'curl -X POST https://api.beacon.dev/v1/monitors \\',
+      '  -H "Authorization: Bearer YOUR_API_KEY" \\',
+      '  -d \'{"url": "https://myapp.com/health", "every": "1m"}\''
+    ].join("\n"),
+    [
+      'import Beacon from "beacon-sdk";',
+      '',
+      'const beacon = new Beacon("YOUR_API_KEY");',
+      '',
+      'beacon.monitors.create({',
+      '  url: "https://myapp.com/health",',
+      '  every: "1m"',
+      '});'
+    ].join("\n"),
+    [
+      'from beacon import Beacon',
+      '',
+      'beacon = Beacon("YOUR_API_KEY")',
+      '',
+      'beacon.monitors.create(',
+      '    url="https://myapp.com/health",',
+      '    every="1m",',
+      ')'
+    ].join("\n")
+  ];
+
+  const planNames = ["Free", "Team", "Scale"];
+  const monthlyPrices = [0, 29, 99];
+  const yearlyDiscount = 0.8;   // yearly billing pays 80% of the monthly price
+
+  const strengthLabels = ["Too short", "Weak", "Fair", "Good", "Strong"];
+
+  // ---------- 2. SMALL HELPER FUNCTIONS ----------
+
+  // Is this text a plausible email address?
+  function isValidEmail(email) {
+    email = email.trim();
+    if (email.includes(" ")) {
+      return false;
+    }
+    const at = email.indexOf("@");
+    if (at < 1) {
+      return false;                       // no @, or nothing before it
+    }
+    if (email.lastIndexOf("@") !== at) {
+      return false;                       // more than one @
+    }
+    const dot = email.lastIndexOf(".");
+    if (dot < at + 2) {
+      return false;                       // no dot after the @, or nothing between
+    }
+    if (dot === email.length - 1) {
+      return false;                       // ends with a dot
+    }
+    return true;
+  }
+
+  // Score a password from 0 (too short) to 4 (strong)
+  function passwordScore(pw) {
+    let hasDigit = false;
+    let hasUpper = false;
+    let hasSymbol = false;
+
+    for (const ch of pw) {
+      if ("0123456789".includes(ch)) {
+        hasDigit = true;
+      } else if (ch.toUpperCase() !== ch.toLowerCase()) {
+        if (ch === ch.toUpperCase()) {
+          hasUpper = true;
+        }
+      } else {
+        hasSymbol = true;
+      }
+    }
+
+    let score = 0;
+    if (pw.length >= 8) { score++; }
+    if (hasDigit)       { score++; }
+    if (hasUpper)       { score++; }
+    if (hasSymbol)      { score++; }
+    return score;
+  }
+
+  // Turn a latency in milliseconds into a state name
+  function stateFor(ms) {
+    if (ms < 250) {
+      return "Operational";
+    } else if (ms < 400) {
+      return "Degraded";
+    } else {
+      return "Slow";
+    }
+  }
+  function dotClassFor(ms) {
+    if (ms < 250) {
+      return "dot";
+    } else if (ms < 400) {
+      return "dot warn";
+    } else {
+      return "dot bad";
+    }
+  }
+
+  // "ada lovelace" -> "Ada"
+  function firstNameOf(fullName) {
+    const first = fullName.trim().split(" ")[0];
+    return first[0].toUpperCase() + first.slice(1).toLowerCase();
+  }
+
+  // ---------- 3. BUILD PAGE PIECES FROM THE ARRAYS ----------
+
+  function renderFeatures() {
+    let html = "";
+    for (let i = 0; i < featureTitles.length; i++) {
+      const number = String(i + 1).padStart(2, "0");
+      html += `
+        <article class="card">
+          <span class="card-num">${number}</span>
+          <h3>${featureTitles[i]}</h3>
+          <p>${featureTexts[i]}</p>
+        </article>`;
+    }
+    document.getElementById("featureGrid").innerHTML = html;
+  }
+
+  function renderStatusRows() {
+    let html = "";
+    for (let i = 0; i < serviceNames.length; i++) {
+      html += `
+        <li>
+          <span class="dot" id="dot-${i}"></span>
+          <span class="svc-name">${serviceNames[i]}<span class="svc-state" id="state-${i}">Checking...</span></span>
+          <span class="ms" id="ms-${i}">--</span>
+        </li>`;
+    }
+    document.getElementById("statusList").innerHTML = html;
+  }
+
+  // ---------- 4. LIVE STATUS (updates every 2.5 seconds) ----------
+  function updateStatus() {
+    for (let i = 0; i < serviceNames.length; i++) {
+      let ms = 40 + Math.floor(Math.random() * 180);   // 40 to 219 ms
+      if (Math.random() < 0.12) {
+        ms = ms + 220;                                  // an occasional slow check
+      }
+      document.getElementById("ms-" + i).textContent = ms + " ms";
+      document.getElementById("state-" + i).textContent = stateFor(ms);
+      document.getElementById("dot-" + i).className = dotClassFor(ms);
+    }
+    const time = new Date().toLocaleTimeString();
+    document.getElementById("statusFoot").textContent = `Last check: ${time}  ·  99.99% uptime (30 days)`;
+  }
+
+  // ---------- 5. COUNT-UP NUMBERS ----------
+  function animateCount(el) {
+    const target = Number(el.getAttribute("data-target"));
+    const decimals = Number(el.getAttribute("data-decimals"));
+    const prefix = el.getAttribute("data-prefix") || "";
+    const suffix = el.getAttribute("data-suffix") || "";
+    const steps = 40;
+    let step = 0;
+
+    const timer = setInterval(function () {
+      step++;
+      const value = target * (step / steps);
+      const shown = value.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+      el.textContent = prefix + shown + suffix;
+      if (step >= steps) {
+        clearInterval(timer);
+      }
+    }, 30);
+  }
+
+  // ---------- 6. CODE TABS + COPY ----------
+  let currentTab = 0;
+
+  function showTab(index) {
+    currentTab = index;
+    const buttons = document.querySelectorAll("#tabs .tab");
+    for (let i = 0; i < buttons.length; i++) {
+      if (i === index) {
+        buttons[i].classList.add("active");
+      } else {
+        buttons[i].classList.remove("active");
+      }
+    }
+    document.getElementById("codeText").textContent = snippets[index];
+  }
+
+  function buildTabs() {
+    const tabsBox = document.getElementById("tabs");
+    for (let i = 0; i < tabNames.length; i++) {
+      const btn = document.createElement("button");
+      btn.className = "tab";
+      btn.type = "button";
+      btn.textContent = tabNames[i];
+      btn.addEventListener("click", function () {
+        showTab(i);
+      });
+      tabsBox.appendChild(btn);
+    }
+    showTab(0);
+  }
+
+  function copyCode() {
+    const button = document.getElementById("copyBtn");
+    const text = snippets[currentTab];
+    function done() {
+      button.textContent = "Copied!";
+      setTimeout(function () { button.textContent = "Copy"; }, 1500);
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      done();
+    }
+  }
+
+  // ---------- 7. PRICING TOGGLE ----------
+  function setBilling(isYearly) {
+    for (let i = 0; i < planNames.length; i++) {
+      let price = monthlyPrices[i];
+      if (isYearly) {
+        price = Math.round(price * yearlyDiscount);
+      }
+      document.getElementById("price-" + i).textContent = "$" + price;
+
+      let note = "per month";
+      if (isYearly && price > 0) {
+        note = "per month, billed yearly";
+      }
+      document.getElementById("per-" + i).textContent = note;
+    }
+  }
+
+  // ---------- 8. FORMS ----------
+  function showError(fieldId, errorId, message) {
+    document.getElementById(errorId).textContent = message;
+    const field = document.getElementById(fieldId);
+    if (field) {
+      if (message === "") {
+        field.classList.remove("invalid");
+      } else {
+        field.classList.add("invalid");
+      }
+    }
+  }
+
+  function handleHeroForm(event) {
+    event.preventDefault();
+    const email = document.getElementById("heroEmail").value;
+    if (!isValidEmail(email)) {
+      document.getElementById("heroError").textContent = "Please enter a valid email, like you@company.com";
+      return;
+    }
+    document.getElementById("heroError").textContent = "";
+    document.getElementById("signupEmail").value = email.trim();
+    document.getElementById("signup").scrollIntoView();
+    document.getElementById("fullName").focus();
+  }
+
+  function updateMeter() {
+    const pw = document.getElementById("password").value;
+    const bar = document.getElementById("meterBar");
+    const label = document.getElementById("meterLabel");
+
+    if (pw.length === 0) {
+      bar.style.width = "0%";
+      bar.className = "meter-bar";
+      label.textContent = "Use 8+ characters, a capital letter, a number, and a symbol.";
+      return;
+    }
+
+    const score = passwordScore(pw);
+    bar.style.width = Math.max(score, 1) * 25 + "%";
+    label.textContent = "Password strength: " + strengthLabels[score];
+
+    if (score <= 1) {
+      bar.className = "meter-bar";
+    } else if (score === 2) {
+      bar.className = "meter-bar fair";
+    } else if (score === 3) {
+      bar.className = "meter-bar good";
+    } else {
+      bar.className = "meter-bar strong";
+    }
+  }
+
+  function handleSignup(event) {
+    event.preventDefault();
+    let ok = true;
+
+    const name = document.getElementById("fullName").value.trim();
+    const email = document.getElementById("signupEmail").value;
+    const pw = document.getElementById("password").value;
+    const agreed = document.getElementById("terms").checked;
+
+    if (name === "") {
+      showError("field-name", "nameError", "Please enter your name.");
+      ok = false;
+    } else {
+      showError("field-name", "nameError", "");
+    }
+
+    if (!isValidEmail(email)) {
+      showError("field-email", "emailError", "Please enter a valid email, like you@company.com");
+      ok = false;
+    } else {
+      showError("field-email", "emailError", "");
+    }
+
+    if (passwordScore(pw) < 3) {
+      showError("field-password", "passwordError", "Choose a stronger password (at least Good).");
+      ok = false;
+    } else {
+      showError("field-password", "passwordError", "");
+    }
+
+    if (!agreed) {
+      document.getElementById("termsError").textContent = "Please accept the terms to continue.";
+      ok = false;
+    } else {
+      document.getElementById("termsError").textContent = "";
+    }
+
+    if (!ok) {
+      return;
+    }
+
+    document.getElementById("signupForm").hidden = true;
+    document.getElementById("successBox").hidden = false;
+    document.getElementById("successTitle").textContent = `Welcome, ${firstNameOf(name)}!`;
+    document.getElementById("successText").textContent = `We sent a confirmation to ${email.trim()}.`;
+  }
+
+  // ---------- 9. THEME + MOBILE MENU ----------
+  function toggleTheme() {
+    const root = document.documentElement;
+    const button = document.getElementById("themeBtn");
+    if (root.getAttribute("data-theme") === "dark") {
+      root.setAttribute("data-theme", "light");
+      button.textContent = "Dark mode";
+    } else {
+      root.setAttribute("data-theme", "dark");
+      button.textContent = "Light mode";
+    }
+  }
+
+  function toggleMenu() {
+    const nav = document.getElementById("navLinks");
+    const button = document.getElementById("menuBtn");
+    nav.classList.toggle("open");
+    button.setAttribute("aria-expanded", nav.classList.contains("open"));
+  }
+
+  // ---------- 10. START EVERYTHING ----------
+  renderFeatures();
+  renderStatusRows();
+  updateStatus();
+  setInterval(updateStatus, 2500);
+
+  const counters = document.querySelectorAll(".stat-num");
+  for (const counter of counters) {
+    animateCount(counter);
+  }
+
+  buildTabs();
+  document.getElementById("copyBtn").addEventListener("click", copyCode);
+  document.getElementById("billingToggle").addEventListener("change", function () {
+    setBilling(this.checked);
+  });
+  document.getElementById("heroForm").addEventListener("submit", handleHeroForm);
+  document.getElementById("signupForm").addEventListener("submit", handleSignup);
+  document.getElementById("password").addEventListener("input", updateMeter);
+  document.getElementById("themeBtn").addEventListener("click", toggleTheme);
+  document.getElementById("menuBtn").addEventListener("click", toggleMenu);
+
+  // close the mobile menu after choosing a link
+  const navLinkItems = document.querySelectorAll("#navLinks a");
+  for (const link of navLinkItems) {
+    link.addEventListener("click", function () {
+      document.getElementById("navLinks").classList.remove("open");
+      document.getElementById("menuBtn").setAttribute("aria-expanded", "false");
+    });
+  }
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+</script>
+</body>
+</html>
